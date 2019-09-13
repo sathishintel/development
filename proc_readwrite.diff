@@ -1,0 +1,226 @@
+-bash-4.1$ git diff
+diff --git a/drivers/net/ethernet/freescale/gianfar.c b/drivers/net/ethernet/freescale/gianfar.c
+index 92497c8..6dda57f 100644
+--- a/drivers/net/ethernet/freescale/gianfar.c
++++ b/drivers/net/ethernet/freescale/gianfar.c
+@@ -86,6 +86,7 @@
+ #include <linux/udp.h>
+ #include <linux/in.h>
+ #include <linux/net_tstamp.h>
++#include <linux/proc_fs.h>  /* Necessary because we use the proc fs */
+ 
+ #include <asm/io.h>
+ #ifdef CONFIG_PPC
+@@ -109,8 +110,9 @@
+ 
+ #define TX_TIMEOUT      (5*HZ)
+ 
++#define hex(val)  (val)
+ const char gfar_driver_version[] = "2.0";
+-
++struct proc_dir_entry *ent = NULL;
+ static int gfar_enet_open(struct net_device *dev);
+ static int gfar_start_xmit(struct sk_buff *skb, struct net_device *dev);
+ static void gfar_reset_task(struct work_struct *work);
+@@ -148,6 +150,10 @@ static void gfar_set_mac_for_addr(struct net_device *dev, int num,
+                                  const u8 *addr);
+ static int gfar_ioctl(struct net_device *dev, struct ifreq *rq, int cmd);
+ 
++struct gfar_private *sat_priv;
++#define MAX_PROC_SIZE 20
++char proc_data[MAX_PROC_SIZE];
++
+ MODULE_AUTHOR("Freescale Semiconductor, Inc");
+ MODULE_DESCRIPTION("Gianfar Ethernet Driver");
+ MODULE_LICENSE("GPL");
+@@ -1142,7 +1148,9 @@ void gfar_mac_reset(struct gfar_private *priv)
+ {
+        struct gfar __iomem *regs = priv->gfargrp[0].regs;
+        u32 tempval;
++       u32 mccfg2val;
+ 
++    sat_priv = priv;
+        /* Reset MAC layer */
+        gfar_write(&regs->maccfg1, MACCFG1_SOFT_RESET);
+ 
+@@ -1166,21 +1174,27 @@ void gfar_mac_reset(struct gfar_private *priv)
+        gfar_write(&regs->minflr, MINFLR_INIT_SETTINGS);
+ 
+        /* Initialize MACCFG2. */
+-#ifdef CONFIG_CISCO_PEGASUS
++/*#ifdef CONFIG_CISCO_PEGASUS
+        tempval = gfar_read(&regs->maccfg2);
+-#else
++    printk("[%s] tempval = %d hex temp_val = 0x%x \n" ,
++            __FUNCTION__,tempval,tempval); */
++//#else
+        tempval = MACCFG2_INIT_SETTINGS;
+-#endif
++//#endif
+ 
+        /* eTSEC74 erratum: Rx frames of length MAXFRM or MAXFRM-1
+         * are marked as truncated.  Avoid this by MACCFG2[Huge Frame]=1,
+         * and by checking RxBD[LG] and discarding larger than MAXFRM.
+         */
+-       if (gfar_has_errata(priv, GFAR_ERRATA_74))
++       if (gfar_has_errata(priv, GFAR_ERRATA_74)) {
++        printk("#####GFAR_ERRATA_74 got hit ########\n");
+                tempval |= MACCFG2_HUGEFRAME | MACCFG2_LENGTHCHECK;
+-
++    }
+        gfar_write(&regs->maccfg2, tempval);
+ 
++       mccfg2val = gfar_read(&regs->maccfg2);
++    printk("[%s] after everything done read back mccfg2val = 0x%x \n" ,
++            __FUNCTION__,mccfg2val);
+        /* Clear mac addr hash registers */
+        gfar_write(&regs->igaddr0, 0);
+        gfar_write(&regs->igaddr1, 0);
+@@ -1228,6 +1242,7 @@ static void gfar_hw_init(struct gfar_private *priv)
+         */
+        gfar_halt(priv);
+ 
++    printk("[%s] calling mac reset !!!!!!!!!!!\n",__FUNCTION__);
+        gfar_mac_reset(priv);
+ 
+        /* Zero out the rmon mib registers if it has them */
+@@ -1310,7 +1325,96 @@ static void gfar_init_addr_hash_table(struct gfar_private *priv)
+                priv->hash_regs[7] = &regs->gaddr7;
+        }
+ }
+-
++#if 1
++void modify_maccfgf2reg(void) {
++    
++    
++    printk("this proc entry has been created to modify the MACCFG2 register\n"
++           "use command echo <register value> /proc/mac_reg to configure the reg\n");
++    /* the below commented code has the ability to set right
++        config to set maccfg register in full duplex mode to make 
++        it work
++    */
++    /*struct gfar __iomem *regs = sat_priv->gfargrp[0].regs;
++    u32 maccfg2_reg ;
++    u32 val =  0x00007201;
++    maccfg2_reg = gfar_read(&regs->maccfg2);
++    printk("[%s] maccfg2_reg = %d hex_maccfg2_reg = 0x%x \n" ,
++            __FUNCTION__,maccfg2_reg,maccfg2_reg);
++
++    if (val == maccfg2_reg) {
++        printk("wrong value stroed in maccfg2 lets modify to working value\n");
++        maccfg2_reg = MACCFG2_INIT_SETTINGS;
++    }
++    gfar_write(&regs->maccfg2, maccfg2_reg);
++
++    maccfg2_reg = gfar_read(&regs->maccfg2);
++    printk("[%s] done read back mccfg2val = 0x%x \n" ,
++            __FUNCTION__,maccfg2_reg);*/
++    return;
++}
++
++static ssize_t mywrite(struct file *file, const char __user *ubuf, size_t count, loff_t *ppos) 
++{
++
++    /*
++        u32 hd_1 = 0x00007105
++        u32 hd_2 = 0x00007127
++        u32 fd_1 = 0x00007205
++        u32 fd_2 = 0x00007227
++        u32 fd_3 = 0x00007201
++   */
++    int i = 0 ,len ,rem=0;
++    struct gfar __iomem *regs = sat_priv->gfargrp[0].regs;
++    u32 maccfg2_reg ;
++    if(count > MAX_PROC_SIZE)
++        count = MAX_PROC_SIZE;
++    if(copy_from_user(proc_data, ubuf, count))
++        return -EFAULT;
++
++    if (proc_data != NULL) {
++        int len = strlen(proc_data);
++        int size = sizeof(proc_data);
++        printk("len = %d size = %d procdata = %s \n",len ,size , proc_data);
++    }
++    proc_data[len-1] = '\0';
++
++    len = strlen(proc_data);
++    printk("lenth = %d \n",len);
++    while (i < len) {
++        if (proc_data[i] >= '0' && proc_data[i] <= '9' ) {
++            rem = ( proc_data[i] - '0');
++            //val = (val*10 )+ ( proc_data[i] - '0');
++            maccfg2_reg = ((maccfg2_reg <<4) | rem);
++        }
++        i++;
++    }
++   
++   // kstrtoint(proc_data,0x16,&val);
++   // printk("kstrtoint value = 0x%x \n",val);
++
++    printk(" writing value maccfg2_reg = %x \n",maccfg2_reg);
++    gfar_write(&regs->maccfg2,maccfg2_reg);
++    maccfg2_reg = gfar_read(&regs->maccfg2);
++    printk("maccfg2_reg = %x , dec = %d \n",maccfg2_reg,maccfg2_reg);
++    return count;
++}
++ 
++static ssize_t myread(struct file *file, char __user *ubuf,size_t count, loff_t *ppos) 
++{
++    int len=0;
++
++    modify_maccfgf2reg();
++    return len;
++}
++
++static struct file_operations myops = 
++{
++    .owner = THIS_MODULE,
++    .read = myread,
++    .write = mywrite,
++};
++#endif
+ /* Set up the ethernet device structure, private data,
+  * and anything else we need before we start
+  */
+@@ -1321,6 +1425,12 @@ static int gfar_probe(struct platform_device *ofdev)
+        struct gfar_private *priv = NULL;
+        int err = 0, i;
+ 
++
++    if (ent == NULL ) {
++        ent = proc_create("mac_reg",0660,NULL,&myops);
++        printk("proc creation failed!!!!!!!!!!!!!!!!!!!!1\n");
++    }
++    
+        err = gfar_of_init(ofdev, &dev);
+ 
+        if (err)
+@@ -1485,6 +1595,9 @@ static int gfar_remove(struct platform_device *ofdev)
+        struct gfar_private *priv = platform_get_drvdata(ofdev);
+        struct device_node *np = ofdev->dev.of_node;
+ 
++
++    remove_proc_entry("mac_reg", NULL);
++    printk("###proc entry removed#######\n");
+        of_node_put(priv->phy_node);
+        of_node_put(priv->tbi_node);
+ 
+@@ -1702,6 +1815,7 @@ static int gfar_restore(struct device *dev)
+ 
+        gfar_init_bds(ndev);
+ 
++    printk("[%s] calling mac reset !!!!!!!!!!!\n",__FUNCTION__);
+        gfar_mac_reset(priv);
+ 
+        gfar_init_tx_rx_base(priv);
+@@ -2204,9 +2318,8 @@ int startup_gfar(struct net_device *ndev)
+        struct gfar_private *priv = netdev_priv(ndev);
+        int err;
+ 
+-#ifndef CONFIG_CISCO_PEGASUS   
++    printk("[%s] calling mac reset \n",__FUNCTION__);
+        gfar_mac_reset(priv);
+-#endif
+        err = gfar_alloc_skb_resources(ndev);
+        if (err)
+                return err;
